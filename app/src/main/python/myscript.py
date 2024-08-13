@@ -37,12 +37,31 @@ def save_to_csv(name, emotion, timestamp, csv_file='Attendance.csv'):
         writer.writerow([name, emotion, timestamp])
 
 def process_image(image_path, encoding_file_path):
-    accuracy_threshold = 0.50
+    import os
 
+    def process_image(image_path, encoding_file_path):
+        # Debugging output
+        print(f"Image path: {image_path}")
+        print(f"Encoding file path: {encoding_file_path}")
+
+        # Check if files exist
+        if not os.path.exists(image_path):
+            print("Error: Image file does not exist")
+            return {"status": "error", "message": "Image file not found"}
+        if not os.path.exists(encoding_file_path):
+            print("Error: Encoding file does not exist")
+            return {"status": "error", "message": "Encoding file not found"}
+
+        # Continue with processing if files exist
+        # ...
+
+
+    accuracy_threshold = 0.50
     known_face_encodings, known_face_names = load_known_faces(encoding_file_path)
 
     frame = cv2.imread(image_path)
     if frame is None:
+        print("Failed to load image")
         return {"status": "error", "message": "Failed to load image"}
 
     try:
@@ -74,9 +93,10 @@ def process_image(image_path, encoding_file_path):
         print(f"Image processing failed: {e}")
         return {"status": "error", "message": str(e)}
 
+
 # Example usage
 # Adjust the paths according to your environment
-encoding_file_path = '/path/to/encoding.pkl'  # Replace with actual path
-image_path = '/path/to/image.jpg'  # Replace with actual path
+encoding_file_path = '/path/to/encodings.pkl'  # Replace with actual path
+image_path = '/path/to/temp_image.jpg'  # Replace with actual path
 result = process_image(image_path, encoding_file_path)
 print(result)

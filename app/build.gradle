@@ -25,7 +25,7 @@ android {
 
         chaquopy {
             python{
-                buildPython "C:/Users/USER/AppData/Local/Programs/Python/Python312/python.exe"
+                buildPython "C:/Users/Maha Abu adas/AppData/Local/Programs/Python/Python312/python.exe"
                 pip {
                     install "numpy"
                     install "opencv-python"

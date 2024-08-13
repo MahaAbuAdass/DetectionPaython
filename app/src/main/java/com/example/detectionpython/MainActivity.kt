@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -19,10 +20,16 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
+import android.media.ExifInterface
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
@@ -45,8 +52,12 @@ class MainActivity : AppCompatActivity() {
         cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
                 try {
-                    val bitmap = BitmapFactory.decodeStream(contentResolver.openInputStream(photoUri))
-                    processImage(bitmap)
+                    // Correct orientation of the image and save it
+                    correctImageOrientationAndSave()
+                    // Process the image
+                    CoroutineScope(Dispatchers.IO).launch {
+                        processImage()
+                    }
                 } catch (e: FileNotFoundException) {
                     e.printStackTrace()
                     Log.e("BitmapFactory", "Unable to decode stream: ${e.message}")
@@ -70,6 +81,42 @@ class MainActivity : AppCompatActivity() {
         cameraLauncher.launch(takePictureIntent)
     }
 
+    private fun correctImageOrientationAndSave() {
+        try {
+            // Load the image as a Bitmap
+            val bitmap = BitmapFactory.decodeStream(contentResolver.openInputStream(photoUri))
+
+            // Check the orientation and correct it
+            val correctedBitmap = correctImageOrientation(bitmap)
+
+            // Save the corrected bitmap
+            val imageFile = File(cacheDir, "temp_image.jpg")
+            FileOutputStream(imageFile).use { out ->
+                correctedBitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            }
+
+            Log.d("ImageCorrection", "Image successfully saved at ${imageFile.absolutePath}")
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Log.e("ImageCorrection", "Failed to correct and save image: ${e.message}")
+        }
+    }
+
+    private fun correctImageOrientation(bitmap: Bitmap): Bitmap {
+        val exif = ExifInterface(contentResolver.openInputStream(photoUri)!!)
+        val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        }
+
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    }
+
     private fun resizeBitmap(bitmap: Bitmap, maxWidth: Int, maxHeight: Int): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
@@ -89,7 +136,7 @@ class MainActivity : AppCompatActivity() {
         return Bitmap.createScaledBitmap(bitmap, finalWidth, finalHeight, true)
     }
 
-    private fun processImage(bitmap: Bitmap) {
+    private suspend fun processImage() {
         val python = Python.getInstance()
         val pythonModule = python.getModule("myscript")
 
@@ -98,43 +145,74 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val resizedBitmap = resizeBitmap(bitmap, 800, 600)
         val imageFile = File(cacheDir, "temp_image.jpg")
+        val resizedBitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
+        val resizedImageFile = File(cacheDir, "temp_image_resized.jpg")
+
         try {
-            FileOutputStream(imageFile).use { out ->
-                resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+            FileOutputStream(resizedImageFile).use { out ->
+                resizeBitmap(resizedBitmap, 800, 600).compress(Bitmap.CompressFormat.JPEG, 85, out)
             }
         } catch (e: IOException) {
             e.printStackTrace()
-            Log.e("processImage", "Failed to save bitmap to file: ${e.message}")
+            Log.e("processImage", "Failed to save resized bitmap to file: ${e.message}")
             return
         }
 
-        val encodingFilePath = File(filesDir, "encodings.pkl")
-        copyAssetToFile("encodings.pkl", encodingFilePath)
+        val encodingFile = File(filesDir, "encodings.pkl")
+        copyAssetToFile("encodings.pkl", encodingFile)
 
-        Log.d("FilePaths", "Image file path: ${imageFile.absolutePath}")
-        Log.d("FilePaths", "Encoding file path: ${encodingFilePath.absolutePath}")
-
-        if (!imageFile.exists()) {
-            Log.e("FileCheck", "Image file does not exist")
-            return
-        }
-        if (!encodingFilePath.exists()) {
-            Log.e("FileCheck", "Encoding file does not exist")
+        if (resizedImageFile.exists()) {
+            Log.d("FileCheck", "Image file exists at ${resizedImageFile.absolutePath}")
+        } else {
+            Log.e("FileCheck", "Image file does not exist at ${resizedImageFile.absolutePath}")
             return
         }
 
-        val result: PyObject? = pythonModule.callAttr("process_image", imageFile.absolutePath, encodingFilePath.absolutePath)
+        val fileSize = resizedImageFile.length()
+        Log.d("FileCheck", "Image file size: $fileSize bytes")
+        if (fileSize == 0L) {
+            Log.e("FileCheck", "Image file is empty")
+            return
+        }
 
-        runOnUiThread {
-            if (result != null) {
-                val status = result.get("status").toString()
-                val message = result.get("message").toString()
-                resultTextView.text = "Status: $status\nMessage: $message"
-            } else {
-                Log.e("PythonError", "Python function returned null.")
-                resultTextView.text = "Error: Python function returned null."
+        try {
+            Log.d("PythonExecution", "Starting Python function execution")
+            val result: PyObject = withContext(Dispatchers.IO) {
+                pythonModule.callAttr("process_image", resizedImageFile.absolutePath, encodingFile.absolutePath)
+            }
+
+            val resultJson = result.toString() // Ensure the result is a JSON string
+            Log.d("PythonResult", "Received result: $resultJson")
+
+            runOnUiThread {
+                try {
+                    val jsonObject = JSONObject(resultJson)
+                    val status = jsonObject.optString("status", "unknown")
+                    val message = jsonObject.optString("message", "No message")
+                    val name = jsonObject.optString("name", "No name")
+                    val emotion = jsonObject.optString("emotion", "No emotion")
+                    val time = jsonObject.optString("time", "No time")
+
+                    resultTextView.text = """
+                        Status: $status
+                        Message: $message
+                        Name: $name
+                        Emotion: $emotion
+                        Time: $time
+                    """.trimIndent()
+                } catch (e: Exception) {
+                    Log.e("JsonParsingError", "Failed to parse JSON result: ${e.message}")
+                    resultTextView.text = "Error: Failed to parse JSON result."
+                }
+            }
+
+            Log.d("PythonExecution", "Python function execution completed")
+
+        } catch (e: Exception) {
+            Log.e("PythonError", "Python function execution failed: ${e.message}")
+            runOnUiThread {
+                resultTextView.text = "Error: Python function execution failed."
             }
         }
     }
@@ -160,9 +238,9 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CAMERA_PERMISSION) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Permission granted, proceed with camera action
+                dispatchTakePictureIntent()
             } else {
-                // Permission denied, show a message to the user
+                Log.e("PermissionError", "Camera permission not granted")
             }
         }
     }

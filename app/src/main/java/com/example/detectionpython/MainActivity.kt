@@ -138,7 +138,7 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun processImage() {
         val python = Python.getInstance()
-        val pythonModule = python.getModule("myscript")
+        val pythonModule = python.getModule("emotion")
 
         if (pythonModule == null) {
             Log.e("PythonError", "Failed to load Python module")

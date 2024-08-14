@@ -28,7 +28,7 @@ android {
                 buildPython "3.9.16" // Specify Python version
                 buildPython "C:/Users/USER/AppData/Local/Programs/Python/Python312/python.exe"
                 pip {
-                    install "numpy"
+                    install "numpy" // Specify the desired version
                     install "opencv-python"
                     install "face_recognition"
                     install "deepface"

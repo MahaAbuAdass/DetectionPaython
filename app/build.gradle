@@ -24,14 +24,20 @@ android {
         }
 
         chaquopy {
-            python{
-                buildPython "3.9.16" // Specify Python version
+            python {
+                // buildPython "3.8" // Specify Python version
                 buildPython "C:/Users/USER/AppData/Local/Programs/Python/Python312/python.exe"
+
+//                pip {
+//                    install "src/main/python/"
+//                }
                 pip {
-                    install "numpy" // Specify the desired version
+
+//                    install "numpy" // Specify the desired version
                     install "opencv-python"
                     install "face_recognition"
                     install "deepface"
+//                }
                 }
             }
         }

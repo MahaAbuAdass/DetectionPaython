@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from numpy.testing import assert_equal, assert_almost_equal
 import face_recognition
 import pickle
 from datetime import datetime
@@ -9,26 +10,47 @@ import json
 from typing import Optional, Dict, Any
 
 def load_known_faces(encoding_file_path: str):
-    print(f"numpy version  {np.__version__}   ")
     """Load known faces and their names from the encoding file."""
+    print(f"NumPy version: {np.__version__}")
+    print(f"OpenCV version: {cv2.__version__}")
     if os.path.exists(encoding_file_path):
-        with open(encoding_file_path, 'rb') as file:
-            known_face_encodings, known_face_names = pickle.load(file)
+        try:
+            with open(encoding_file_path, 'rb') as file:
+                known_face_encodings, known_face_names = pickle.load(file)
+        except Exception as e:
+            print(f"Failed to load encodings: {e}")
+            known_face_encodings = []
+            known_face_names = []
     else:
         known_face_encodings = []
         known_face_names = []
+
     return known_face_encodings, known_face_names
 
 def detect_emotion(image_path: str):
     """Detect emotion in the given frame using DeepFace."""
     try:
-        # Analyze the image for emotion
-        emotion_results = DeepFace.analyze(img_path=image_path, actions=['emotion'])
-        # Handle DeepFace library output
-        if 'dominant_emotion' in emotion_results[0]:
-            return emotion_results[0]['dominant_emotion']
-        else:
+        print(f"Analyzing image for emotion: {image_path}")
+
+        # Ensure the image path is correct and the file exists
+        if not os.path.isfile(image_path):
+            print(f"Image file does not exist: {image_path}")
             return None
+
+        # Analyze the image for emotion
+        emotion_results = DeepFace.analyze(img_path=image_path, actions=['emotion'], enforce_detection=False)
+
+        # Debug print the results
+        print(f"Emotion detection results: {emotion_results}")
+
+        # Ensure the result is a list and the first item is a dictionary
+        if isinstance(emotion_results, list) and isinstance(emotion_results[0], dict):
+            if 'dominant_emotion' in emotion_results[0]:
+                return emotion_results[0]['dominant_emotion']
+
+        # Return None if 'dominant_emotion' key is not found
+        return None
+
     except Exception as e:
         import traceback
         print(f"Emotion detection failed: {e}")
@@ -70,6 +92,9 @@ def process_image(image_path: str, encoding_file_path: str) -> str:
         face_locations = face_recognition.face_locations(frame)
         face_encodings = face_recognition.face_encodings(frame, face_locations)
 
+        if not face_encodings:
+            return to_json(status="error", message="No face detected in the image")
+
         for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
             matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
             distances = face_recognition.face_distance(known_face_encodings, face_encoding)
@@ -80,8 +105,17 @@ def process_image(image_path: str, encoding_file_path: str) -> str:
                 best_match_accuracy = distances[best_match_index]
 
                 if best_match_accuracy < accuracy_threshold:
-                    emotion = detect_emotion(frame)
+                    # Save the frame as an image for emotion detection
+                    temp_emotion_image_path = image_path
+                    cv2.imwrite(temp_emotion_image_path, frame)
+
+                    emotion = detect_emotion(temp_emotion_image_path)
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                    # Clean up temporary file
+                    if os.path.exists(temp_emotion_image_path):
+                        os.remove(temp_emotion_image_path)
+
                     if emotion is None:
                         message = f"Hey {best_match_name}, your emotion is not detected. Please try again."
                         return to_json(status="error", message=message)
@@ -96,7 +130,7 @@ def process_image(image_path: str, encoding_file_path: str) -> str:
 def get_file_paths():
     """Retrieve file paths for image and encoding file."""
     # Adjust paths as necessary for the Android environment
-    image_path = 'C:/Users/USER/AppData/Local/Google/AndroidStudioPreview2022.2/device-explorer/samsung SM-A155F/data/data/com.example.detectionpython/cache/temp_image_resized.jpg'  # Example path
+    image_path = '/data/user/0/com.example.detectionpython/cache/temp_image_resized.jpg'  # Example path
     encoding_file_path = '/data/user/0/com.example.detectionpython/files/encodings.pkl'  # Example path
     return image_path, encoding_file_path
 

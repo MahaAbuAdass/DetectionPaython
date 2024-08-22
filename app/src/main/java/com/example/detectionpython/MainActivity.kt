@@ -10,7 +10,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.Button
 import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,20 +28,25 @@ import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import android.media.ExifInterface
+import com.example.detectionpython.databinding.ActivityMainBinding
 import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var resultTextView: TextView
+
     private val REQUEST_CAMERA_PERMISSION = 100
     private lateinit var photoUri: Uri
     private lateinit var cameraLauncher: ActivityResultLauncher<Intent>
-    private lateinit var resultTextView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        resultTextView = findViewById(R.id.resultTextView)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        resultTextView = binding.resultTextView
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED) {
@@ -65,8 +69,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<Button>(R.id.takePictureButton).setOnClickListener {
+        binding.takePictureButton.setOnClickListener {
             dispatchTakePictureIntent()
+        }
+
+        binding.btnRegister.setOnClickListener {
+            val intent = Intent(this, RegistrationActivity::class.java)
+            startActivity(intent)
         }
     }
 
@@ -160,12 +169,27 @@ class MainActivity : AppCompatActivity() {
         }
 
         val encodingFile = File(filesDir, "encodings.pkl")
-        copyAssetToFile("encodings.pkl", encodingFile)
+        if (!encodingFile.exists()) {
+            copyAssetToFile("encodings.pkl", encodingFile)
+        }
+
+        if (encodingFile.canRead() && encodingFile.canWrite()) {
+            Log.d("FileCheck", "Encoding file permissions are OK.")
+        } else {
+            Log.e("FileCheck", "Encoding file permissions are not sufficient.")
+            runOnUiThread {
+                resultTextView.text = "Error: Insufficient permissions for encoding file."
+            }
+            return
+        }
 
         if (resizedImageFile.exists()) {
             Log.d("FileCheck", "Image file exists at ${resizedImageFile.absolutePath}")
         } else {
             Log.e("FileCheck", "Image file does not exist at ${resizedImageFile.absolutePath}")
+            runOnUiThread {
+                resultTextView.text = "Error: Image file does not exist."
+            }
             return
         }
 
@@ -173,6 +197,9 @@ class MainActivity : AppCompatActivity() {
         Log.d("FileCheck", "Image file size: $fileSize bytes")
         if (fileSize == 0L) {
             Log.e("FileCheck", "Image file is empty")
+            runOnUiThread {
+                resultTextView.text = "Error: Image file is empty."
+            }
             return
         }
 
@@ -238,7 +265,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CAMERA_PERMISSION) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                dispatchTakePictureIntent()
+                Log.d("Permission", "Camera permission granted")
             } else {
                 Log.e("PermissionError", "Camera permission not granted")
             }

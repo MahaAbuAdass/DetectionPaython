@@ -41,7 +41,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@id/takePictureButton"
         android:backgroundTint="@color/purple"
-        android:text="Please register to save your face to be able to analyze it"
+        android:text="Sign up in the system"
         android:layout_marginStart="20dp"
         />
 

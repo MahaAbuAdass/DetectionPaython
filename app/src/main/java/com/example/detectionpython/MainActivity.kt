@@ -217,18 +217,19 @@ class MainActivity : AppCompatActivity() {
                     val jsonObject = JSONObject(resultJson)
                     val status = jsonObject.optString("status", "unknown")
                     val message = jsonObject.optString("message", "No message")
-                    val name = jsonObject.optString("name", "No name")
-                    val emotion = jsonObject.optString("emotion", "No emotion")
-                    val time = jsonObject.optString("time", "No time")
+                    val timeAttendance =
+                        jsonObject.optString("attendance_time", "No time attendance")
 
-                    resultTextView.text = """
-                        Status: $status
-                        Message: $message
-                        Name: $name
-                        Emotion: $emotion
-                        Time: $time
-                    """.trimIndent()
-                } catch (e: Exception) {
+                    // Adding log for time attendance
+                    Log.d("PythonResult", "Time Attendance: $timeAttendance")
+
+                    resultTextView.text = when (status) {
+                        "error" -> "Message: $message"
+                        "success" -> "Message: $message\nTime Attendance: $timeAttendance"
+                        else -> "Unknown status: $status"
+                    }
+                }
+                    catch (e: Exception) {
                     Log.e("JsonParsingError", "Failed to parse JSON result: ${e.message}")
                     resultTextView.text = "Error: Failed to parse JSON result."
                 }

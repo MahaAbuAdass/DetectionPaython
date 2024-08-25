@@ -1,6 +1,7 @@
 package com.example.detectionpython
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -34,8 +35,7 @@ class RegistrationActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityRegistrationBinding
     private val REQUEST_CAMERA_PERMISSION = 100
-    private lateinit var photoUri: Uri
-    private lateinit var cameraLauncher: ActivityResultLauncher<Intent>
+    private val REQUEST_IMAGE_CAPTURE = 200
     private var photoCaptured: Boolean = false
     private var userName: String = ""
 
@@ -43,14 +43,6 @@ class RegistrationActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityRegistrationBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        // Set up the camera launcher
-        cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) {
-                photoCaptured = true
-                correctImageOrientationAndSave()
-            }
-        }
 
         // Request camera permission if not granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -62,7 +54,8 @@ class RegistrationActivity : AppCompatActivity() {
         binding.btnTakeImage.setOnClickListener {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED) {
-                dispatchTakePictureIntent()
+                val intent = Intent(this, CameraActivity::class.java)
+                startActivityForResult(intent, REQUEST_IMAGE_CAPTURE)
             } else {
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
             }
@@ -85,47 +78,48 @@ class RegistrationActivity : AppCompatActivity() {
             saveImageToPath(imageFilePath)
 
             CoroutineScope(Dispatchers.IO).launch {
-                val updateSuccessful = updateFaceEncodings(imageFilePath)
+                val updateMessage = updateFaceEncodings(imageFilePath)
                 withContext(Dispatchers.Main) {
-                    if (updateSuccessful) {
-                        Toast.makeText(this@RegistrationActivity, "Registration successful!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@RegistrationActivity, updateMessage, Toast.LENGTH_LONG).show()
+
+                    // Proceed to the next activity only if the update was successful
+                    if (updateMessage.contains("Registration", ignoreCase = true)) {
                         val intent = Intent(this@RegistrationActivity, MainActivity::class.java)
                         startActivity(intent)
                         finish()  // Optional: Close RegistrationActivity
-                    } else {
-                        Toast.makeText(this@RegistrationActivity, "Failed to update face encodings.", Toast.LENGTH_LONG).show()
                     }
                 }
             }
         }
     }
 
-    private fun dispatchTakePictureIntent() {
-        val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        val photoFile = File(filesDir, "temp_image.jpg")
-        photoUri = FileProvider.getUriForFile(this, "${applicationContext.packageName}.fileprovider", photoFile)
-        takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
-        takePictureIntent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        cameraLauncher.launch(takePictureIntent)
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == Activity.RESULT_OK) {
+            val imagePath = data?.getStringExtra("capturedImagePath")
+            if (imagePath != null) {
+                photoCaptured = true
+                correctImageOrientationAndSave(imagePath)
+            }
+        }
     }
 
-    private fun correctImageOrientationAndSave() {
+    private fun correctImageOrientationAndSave(photoPath: String) {
         try {
-            val bitmap = BitmapFactory.decodeStream(contentResolver.openInputStream(photoUri))
-            val correctedBitmap = correctImageOrientation(bitmap)
-            val tempImageFile = File(filesDir, "temp_image.jpg")
-            FileOutputStream(tempImageFile).use { out ->
+            val bitmap = BitmapFactory.decodeFile(photoPath)
+            val correctedBitmap = correctImageOrientation(bitmap, photoPath)
+            FileOutputStream(photoPath).use { out ->
                 correctedBitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
             }
-            Log.d("ImageCorrection", "Image successfully saved at ${tempImageFile.absolutePath}")
+            Log.d("ImageCorrection", "Image successfully saved at $photoPath")
         } catch (e: Exception) {
             e.printStackTrace()
             Log.e("ImageCorrection", "Failed to correct and save image: ${e.message}")
         }
     }
 
-    private fun correctImageOrientation(bitmap: Bitmap): Bitmap {
-        val exif = ExifInterface(contentResolver.openInputStream(photoUri)!!)
+    private fun correctImageOrientation(bitmap: Bitmap, photoPath: String): Bitmap {
+        val exif = ExifInterface(photoPath)
         val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         val matrix = Matrix()
         when (orientation) {
@@ -150,7 +144,7 @@ class RegistrationActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun updateFaceEncodings(photoPath: String): Boolean {
+    private suspend fun updateFaceEncodings(photoPath: String): String {
         val encodingFile = File(filesDir, "encodings.pkl")
         if (!encodingFile.exists() || encodingFile.length() == 0L) {
             copyAssetToFile("encodings.pkl", encodingFile)
@@ -161,9 +155,6 @@ class RegistrationActivity : AppCompatActivity() {
 
         return try {
             val result: PyObject = withContext(Dispatchers.IO) {
-                Log.v("photo path file", photoPath)
-                Log.v("encoding path file", encodingFile.absolutePath)
-
                 pythonModule.callAttr("update_face_encodings", photoPath, encodingFile.absolutePath)
             }
 
@@ -172,10 +163,10 @@ class RegistrationActivity : AppCompatActivity() {
             val message = jsonResponse.optString("message", "No message field in response")
 
             Log.d("UpdateFaceEncodings", "Response from Python: $message")
-            message.contains("saved to", ignoreCase = true)
+            message
         } catch (e: Exception) {
             e.printStackTrace()
-            false
+            "Failed to update face encodings"
         }
     }
 
@@ -195,13 +186,12 @@ class RegistrationActivity : AppCompatActivity() {
         }
     }
 
-    // Handle the result of the camera permission request
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CAMERA_PERMISSION) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Permission granted
-                dispatchTakePictureIntent()
+                val intent = Intent(this, CameraActivity::class.java)
+                startActivityForResult(intent, REQUEST_IMAGE_CAPTURE)
             } else {
                 Toast.makeText(this, "Camera permission is required", Toast.LENGTH_SHORT).show()
             }

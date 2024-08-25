@@ -42,13 +42,14 @@ def update_face_encodings(new_photo_path, encoding_file):
         print(f"Encoded face from {new_photo_path}")
         response['message'] = f"Encoded and added face from {new_photo_path}"
     else:
-        response['message'] = f"No faces found in {new_photo_path}"
+        response['message'] = "No faces found in the image, please try again"
 
     # Save updated encodings to file
     with open(encoding_file, 'wb') as file:
         pickle.dump((known_face_encodings, known_face_names), file)
 
-    response['message'] = f"Encodings saved to {encoding_file}"
+        if encodings:
+            response['message'] = "Registration Successfully"
 
     return json.dumps(response)  # Return the response as JSON
 

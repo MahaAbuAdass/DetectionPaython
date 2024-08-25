@@ -7,6 +7,7 @@
     android:padding="10dp"
     tools:context=".RegistrationActivity">
 
+
     <ImageView
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"

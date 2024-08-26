@@ -6,42 +6,39 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.net.Uri
+import android.media.ExifInterface
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
+import com.example.detectionpython.databinding.ActivityMainBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
-import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
-import android.media.ExifInterface
-import android.widget.Toast
-import com.example.detectionpython.databinding.ActivityMainBinding
-import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var resultTextView: TextView
     private lateinit var progressBar: ProgressBar
-
-    private val REQUEST_CAMERA_PERMISSION = 100
-    private lateinit var photoUri: Uri
     private lateinit var cameraLauncher: ActivityResultLauncher<Intent>
+
+    private val CAMERA_PERMISSION_CODE = 100
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,29 +49,17 @@ class MainActivity : AppCompatActivity() {
         resultTextView = binding.resultTextView
         progressBar = findViewById(R.id.progressBar)
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
-        }
-
+        // Initialize ActivityResultLauncher
         cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) {
-                try {
-                    // Correct orientation of the image and save it
-                    correctImageOrientationAndSave()
-                    // Process the image
-                    CoroutineScope(Dispatchers.IO).launch {
-                        processImage()
-                    }
-                } catch (e: FileNotFoundException) {
-                    e.printStackTrace()
-                    Log.e("BitmapFactory", "Unable to decode stream: ${e.message}")
-                }
-            }
+            handleCameraResult(result)
         }
 
         binding.takePictureButton.setOnClickListener {
-            dispatchTakePictureIntent()
+            if (isCameraPermissionGranted()) {
+                openCamera()
+            } else {
+                requestCameraPermission()
+            }
         }
 
         binding.btnRegister.setOnClickListener {
@@ -83,32 +68,71 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun dispatchTakePictureIntent() {
-        val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-
-        val photoFile = File(externalCacheDir, "photo.jpg")
-        photoUri = FileProvider.getUriForFile(this, "${applicationContext.packageName}.fileprovider", photoFile)
-
-        takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
-        takePictureIntent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        cameraLauncher.launch(takePictureIntent)
+    private fun isCameraPermissionGranted(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun correctImageOrientationAndSave() {
+    private fun requestCameraPermission() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.CAMERA),
+            CAMERA_PERMISSION_CODE
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_PERMISSION_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                openCamera()
+            } else {
+                Toast.makeText(this, "Camera permission is required to take pictures.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun openCamera() {
+        val intent = Intent(this, CameraActivity::class.java)
+        cameraLauncher.launch(intent)
+    }
+
+    private fun handleCameraResult(result: ActivityResult) {
+        if (result.resultCode == RESULT_OK) {
+            val data: Intent? = result.data
+            val imagePath = data?.getStringExtra("capturedImagePath") ?: return
+            val imageFile = File(imagePath)
+
+            if (imageFile.exists()) {
+                val tempImageFile = File(cacheDir, "captured_image.jpg")
+                imageFile.copyTo(tempImageFile, overwrite = true)
+
+                correctImageOrientationAndSave(tempImageFile)
+                CoroutineScope(Dispatchers.IO).launch {
+                    processImage(tempImageFile)
+                }
+            } else {
+                Log.e("FileError", "Image file does not exist at $imagePath")
+            }
+        }
+    }
+
+    private fun correctImageOrientationAndSave(imageFile: File) {
         try {
-            // Load the image as a Bitmap
-            val bitmap = BitmapFactory.decodeStream(contentResolver.openInputStream(photoUri))
+            val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
+            val correctedBitmap = correctImageOrientation(bitmap, imageFile.absolutePath)
 
-            // Check the orientation and correct it
-            val correctedBitmap = correctImageOrientation(bitmap)
-
-            // Save the corrected bitmap
-            val imageFile = File(cacheDir, "temp_image.jpg")
             FileOutputStream(imageFile).use { out ->
                 correctedBitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
             }
 
-            Log.d("ImageCorrection", "Image successfully saved at ${imageFile.absolutePath}")
+            Log.d("ImageCorrection", "Image successfully corrected and saved at ${imageFile.absolutePath}")
 
         } catch (e: Exception) {
             e.printStackTrace()
@@ -116,8 +140,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun correctImageOrientation(bitmap: Bitmap): Bitmap {
-        val exif = ExifInterface(contentResolver.openInputStream(photoUri)!!)
+    private fun correctImageOrientation(bitmap: Bitmap, imagePath: String): Bitmap {
+        val exif = ExifInterface(imagePath)
         val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
 
         val matrix = Matrix()
@@ -130,26 +154,7 @@ class MainActivity : AppCompatActivity() {
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
-    private fun resizeBitmap(bitmap: Bitmap, maxWidth: Int, maxHeight: Int): Bitmap {
-        val width = bitmap.width
-        val height = bitmap.height
-
-        val ratioBitmap = width.toFloat() / height.toFloat()
-        val ratioMax = maxWidth.toFloat() / maxHeight.toFloat()
-
-        val finalWidth: Int
-        val finalHeight: Int
-        if (ratioMax > 1) {
-            finalWidth = (maxHeight * ratioBitmap).toInt()
-            finalHeight = maxHeight
-        } else {
-            finalWidth = maxWidth
-            finalHeight = (maxWidth / ratioBitmap).toInt()
-        }
-        return Bitmap.createScaledBitmap(bitmap, finalWidth, finalHeight, true)
-    }
-
-    private suspend fun processImage() {
+    private suspend fun processImage(imageFile: File) {
         runOnUiThread {
             progressBar.visibility = ProgressBar.VISIBLE
         }
@@ -162,24 +167,6 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 progressBar.visibility = ProgressBar.GONE
                 Toast.makeText(this, "Failed to load Python module", Toast.LENGTH_LONG).show()
-            }
-            return
-        }
-
-        val imageFile = File(cacheDir, "temp_image.jpg")
-        val resizedBitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
-        val resizedImageFile = File(cacheDir, "temp_image_resized.jpg")
-
-        try {
-            FileOutputStream(resizedImageFile).use { out ->
-                resizeBitmap(resizedBitmap, 800, 600).compress(Bitmap.CompressFormat.JPEG, 85, out)
-            }
-        } catch (e: IOException) {
-            e.printStackTrace()
-            Log.e("processImage", "Failed to save resized bitmap to file: ${e.message}")
-            runOnUiThread {
-                progressBar.visibility = ProgressBar.GONE
-                Toast.makeText(this, "Failed to save resized image", Toast.LENGTH_LONG).show()
             }
             return
         }
@@ -200,10 +187,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (resizedImageFile.exists()) {
-            Log.d("FileCheck", "Image file exists at ${resizedImageFile.absolutePath}")
+        if (imageFile.exists()) {
+            Log.d("FileCheck", "Image file exists at ${imageFile.absolutePath}")
         } else {
-            Log.e("FileCheck", "Image file does not exist at ${resizedImageFile.absolutePath}")
+            Log.e("FileCheck", "Image file does not exist at ${imageFile.absolutePath}")
             runOnUiThread {
                 progressBar.visibility = ProgressBar.GONE
                 resultTextView.text = "Error: Image file does not exist."
@@ -211,7 +198,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val fileSize = resizedImageFile.length()
+        val fileSize = imageFile.length()
         Log.d("FileCheck", "Image file size: $fileSize bytes")
         if (fileSize == 0L) {
             Log.e("FileCheck", "Image file is empty")
@@ -225,7 +212,7 @@ class MainActivity : AppCompatActivity() {
         try {
             Log.d("PythonExecution", "Starting Python function execution")
             val result: PyObject = withContext(Dispatchers.IO) {
-                pythonModule.callAttr("process_image", resizedImageFile.absolutePath, encodingFile.absolutePath)
+                pythonModule.callAttr("process_image", imageFile.absolutePath, encodingFile.absolutePath)
             }
 
             val resultJson = result.toString() // Ensure the result is a JSON string
@@ -237,14 +224,18 @@ class MainActivity : AppCompatActivity() {
                     val status = jsonObject.optString("status", "unknown")
                     val message = jsonObject.optString("message", "No message")
                     val timeAttendance = jsonObject.optString("attendance_time", "No time attendance")
+                    val lightThreshold = jsonObject.optDouble("light_threshold", 0.0)
+                    val recognitionThreshold = jsonObject.optDouble("recognition_threshold", 0.0)
 
                     // Adding log for time attendance
                     Log.d("PythonResult", "Time Attendance: $timeAttendance")
+                    Log.d("PythonResult", "Light Threshold: $lightThreshold")
+                    Log.d("PythonResult", "Recognition Threshold: $recognitionThreshold")
 
                     resultTextView.text = when (status) {
-                        "error" -> "Message: $message"
-                        "success" -> "Message: $message\nTime Attendance: $timeAttendance"
-                        else -> "Unknown status: $status"
+                        "error" -> "Message: $message\nLight Threshold: $lightThreshold\nRecognition Threshold: $recognitionThreshold"
+                        "success" -> "Message: $message\nTime Attendance: $timeAttendance\nLight Threshold: $lightThreshold\nRecognition Threshold: $recognitionThreshold"
+                        else -> "Unknown status: $status\nLight Threshold: $lightThreshold\nRecognition Threshold: $recognitionThreshold"
                     }
                 } catch (e: Exception) {
                     Log.e("JsonParsingError", "Failed to parse JSON result: ${e.message}")
@@ -257,6 +248,10 @@ class MainActivity : AppCompatActivity() {
 
         } catch (e: Exception) {
             Log.e("PythonError", "Python function execution failed: ${e.message}")
+
+
+
+
             runOnUiThread {
                 progressBar.visibility = ProgressBar.GONE
                 resultTextView.text = "Error: Python function execution failed."
@@ -264,15 +259,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun copyAssetToFile(assetName: String, outFile: File) {
-        assets.open(assetName).use { inputStream ->
-            FileOutputStream(outFile).use { outputStream ->
-                val buffer = ByteArray(1024)
-                var length: Int
-                while (inputStream.read(buffer).also { length = it } > 0) {
-                    outputStream.write(buffer, 0, length)
+    private fun copyAssetToFile(assetName: String, file: File) {
+        try {
+            assets.open(assetName).use { inputStream ->
+                FileOutputStream(file).use { outputStream ->
+                    val buffer = ByteArray(1024)
+                    var length: Int
+                    while (inputStream.read(buffer).also { length = it } > 0) {
+                        outputStream.write(buffer, 0, length)
+                    }
                 }
             }
+        } catch (e: IOException) {
+            e.printStackTrace()
+            Log.e("FileCopy", "Failed to copy asset: ${e.message}")
         }
     }
 }

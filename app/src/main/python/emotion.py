@@ -26,17 +26,21 @@ def load_known_faces(encoding_file_path: str):
 
     return known_face_encodings, known_face_names
 
-def to_dict(status: str, message: Optional[str] = None, attendance_time: Optional[str] = None) -> Dict[str, Any]:
+def to_dict(status: str, message: Optional[str] = None, attendance_time: Optional[str] = None,
+            light_threshold: Optional[float] = None, recognition_threshold: Optional[float] = None) -> Dict[str, Any]:
     """Convert the result to a dictionary."""
     return {
         "status": status,
         "message": message,
-        "attendance_time": attendance_time
+        "attendance_time": attendance_time,
+        "light_threshold": light_threshold if light_threshold is not None else 0.0,
+        "recognition_threshold": recognition_threshold if recognition_threshold is not None else 0.0
     }
 
-def to_json(status: str, message: Optional[str] = None, attendance_time: Optional[str] = None) -> str:
+def to_json(status: str, message: Optional[str] = None, attendance_time: Optional[str] = None,
+            light_threshold: Optional[float] = None, recognition_threshold: Optional[float] = None) -> str:
     """Convert the result to a JSON string."""
-    return json.dumps(to_dict(status, message, attendance_time))
+    return json.dumps(to_dict(status, message, attendance_time, light_threshold, recognition_threshold))
 
 def liveness_check(face_image) -> bool:
     """Basic liveness check based on color variance (simple heuristic)."""
@@ -45,7 +49,7 @@ def liveness_check(face_image) -> bool:
     print(f"Liveness check variance: {variance}")
 
     # You can adjust the threshold based on empirical data or testing
-    threshold = 950.0
+    threshold = 150.0
     return variance > threshold
 
 def calculate_brightness(image) -> float:
@@ -80,6 +84,8 @@ def process_image(image_path, encoding_file_path):
     status = "error"
     message = None
     attendance_time = None
+    light_threshold = 0.0  # This will store the brightness of the image
+    recognition_threshold = 0.0  # Will be updated with the best match accuracy
 
     if not os.path.exists(image_path):
         message = "Image file not found"
@@ -95,6 +101,9 @@ def process_image(image_path, encoding_file_path):
             print(message)
         else:
             try:
+                # Calculate the brightness of the image
+                light_threshold = calculate_brightness(frame)
+
                 accuracy_threshold = 0.45  # Adjusted threshold for masked face recognition
                 max_angle_threshold = 15.0  # Maximum allowed angle for face recognition
 
@@ -155,6 +164,8 @@ def process_image(image_path, encoding_file_path):
                                 best_match_name = known_face_names[best_match_index]
                                 best_match_accuracy = distances[best_match_index]
 
+                                recognition_threshold = best_match_accuracy  # Update recognition threshold
+
                                 if best_match_accuracy < accuracy_threshold:
                                     # Get current time (hours:minutes:seconds)
                                     current_time = datetime.now().strftime("%H:%M:%S")
@@ -162,12 +173,12 @@ def process_image(image_path, encoding_file_path):
                                     hour = int(datetime.now().strftime("%H"))
 
                                     if hour < 12:
-                                        message = f"Good Morning {best_match_name}"
+                                        message = f"Good morning {best_match_name}"
                                     else:
-                                        message = f"Good Evening {best_match_name}"
+                                        message = f"Good evening {best_match_name}"
 
                                     print(f"Time Attendance: {attendance_time}")
-                                    print(f"Match found: {best_match_name} with accuracy ",(1-best_match_accuracy)*100, "%")
+                                    print(f"Match found: {best_match_name} with accuracy {(1 - best_match_accuracy) * 100}%")
                                     status = "success"
                                     break  # Exit the loop as we found a match
                                 else:
@@ -187,11 +198,16 @@ def process_image(image_path, encoding_file_path):
     processing_time = end_time - start_time  # Calculate the processing time
     print(f"Processing time: {processing_time:.2f} seconds")  # Print the processing time
 
-    return json.dumps({
+    # Construct the final result with thresholds
+    result = {
         "status": status,
         "message": message,
-        "attendance_time": attendance_time
-    })
+        "attendance_time": attendance_time,
+        "light_threshold": light_threshold,
+        "recognition_threshold": recognition_threshold  # Include the best match accuracy
+    }
+
+    return json.dumps(result)
 
 
 # Define paths to the required files (ensure these paths are accessible in Android environment)

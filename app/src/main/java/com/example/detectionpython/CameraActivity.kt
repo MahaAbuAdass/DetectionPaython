@@ -33,7 +33,7 @@ class CameraActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
         outputDirectory = getOutputDirectory()
 
-        binding.tooltipText.text = "Center your face within the circle"
+        binding.tooltipText.text = "To capture the best picture, Please position your face within the circle."
         binding.tooltipText.visibility = View.VISIBLE
         startCamera()
 

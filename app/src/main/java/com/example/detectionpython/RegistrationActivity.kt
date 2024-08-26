@@ -77,9 +77,15 @@ class RegistrationActivity : AppCompatActivity() {
             val imageFilePath = File(filesDir, "$userName.jpg").absolutePath
             saveImageToPath(imageFilePath)
 
+            // Show loader
+            binding.progressBar.visibility = android.view.View.VISIBLE
+
             CoroutineScope(Dispatchers.IO).launch {
                 val updateMessage = updateFaceEncodings(imageFilePath)
                 withContext(Dispatchers.Main) {
+                    // Hide loader
+                    binding.progressBar.visibility = android.view.View.GONE
+
                     Toast.makeText(this@RegistrationActivity, updateMessage, Toast.LENGTH_LONG).show()
 
                     // Proceed to the next activity only if the update was successful

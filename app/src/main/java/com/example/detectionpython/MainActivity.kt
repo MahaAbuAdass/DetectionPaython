@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +29,7 @@ import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import android.media.ExifInterface
+import android.widget.Toast
 import com.example.detectionpython.databinding.ActivityMainBinding
 import org.json.JSONObject
 
@@ -35,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var resultTextView: TextView
+    private lateinit var progressBar: ProgressBar
 
     private val REQUEST_CAMERA_PERMISSION = 100
     private lateinit var photoUri: Uri
@@ -47,6 +50,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         resultTextView = binding.resultTextView
+        progressBar = findViewById(R.id.progressBar)
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED) {
@@ -146,11 +150,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun processImage() {
+        runOnUiThread {
+            progressBar.visibility = ProgressBar.VISIBLE
+        }
+
         val python = Python.getInstance()
         val pythonModule = python.getModule("emotion")
 
         if (pythonModule == null) {
             Log.e("PythonError", "Failed to load Python module")
+            runOnUiThread {
+                progressBar.visibility = ProgressBar.GONE
+                Toast.makeText(this, "Failed to load Python module", Toast.LENGTH_LONG).show()
+            }
             return
         }
 
@@ -165,6 +177,10 @@ class MainActivity : AppCompatActivity() {
         } catch (e: IOException) {
             e.printStackTrace()
             Log.e("processImage", "Failed to save resized bitmap to file: ${e.message}")
+            runOnUiThread {
+                progressBar.visibility = ProgressBar.GONE
+                Toast.makeText(this, "Failed to save resized image", Toast.LENGTH_LONG).show()
+            }
             return
         }
 
@@ -178,6 +194,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             Log.e("FileCheck", "Encoding file permissions are not sufficient.")
             runOnUiThread {
+                progressBar.visibility = ProgressBar.GONE
                 resultTextView.text = "Error: Insufficient permissions for encoding file."
             }
             return
@@ -188,6 +205,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             Log.e("FileCheck", "Image file does not exist at ${resizedImageFile.absolutePath}")
             runOnUiThread {
+                progressBar.visibility = ProgressBar.GONE
                 resultTextView.text = "Error: Image file does not exist."
             }
             return
@@ -198,6 +216,7 @@ class MainActivity : AppCompatActivity() {
         if (fileSize == 0L) {
             Log.e("FileCheck", "Image file is empty")
             runOnUiThread {
+                progressBar.visibility = ProgressBar.GONE
                 resultTextView.text = "Error: Image file is empty."
             }
             return
@@ -217,8 +236,7 @@ class MainActivity : AppCompatActivity() {
                     val jsonObject = JSONObject(resultJson)
                     val status = jsonObject.optString("status", "unknown")
                     val message = jsonObject.optString("message", "No message")
-                    val timeAttendance =
-                        jsonObject.optString("attendance_time", "No time attendance")
+                    val timeAttendance = jsonObject.optString("attendance_time", "No time attendance")
 
                     // Adding log for time attendance
                     Log.d("PythonResult", "Time Attendance: $timeAttendance")
@@ -228,11 +246,11 @@ class MainActivity : AppCompatActivity() {
                         "success" -> "Message: $message\nTime Attendance: $timeAttendance"
                         else -> "Unknown status: $status"
                     }
-                }
-                    catch (e: Exception) {
+                } catch (e: Exception) {
                     Log.e("JsonParsingError", "Failed to parse JSON result: ${e.message}")
                     resultTextView.text = "Error: Failed to parse JSON result."
                 }
+                progressBar.visibility = ProgressBar.GONE
             }
 
             Log.d("PythonExecution", "Python function execution completed")
@@ -240,35 +258,20 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e("PythonError", "Python function execution failed: ${e.message}")
             runOnUiThread {
+                progressBar.visibility = ProgressBar.GONE
                 resultTextView.text = "Error: Python function execution failed."
             }
         }
     }
 
     private fun copyAssetToFile(assetName: String, outFile: File) {
-        try {
-            assets.open(assetName).use { inputStream ->
-                FileOutputStream(outFile).use { outputStream ->
-                    val buffer = ByteArray(1024)
-                    var length: Int
-                    while (inputStream.read(buffer).also { length = it } > 0) {
-                        outputStream.write(buffer, 0, length)
-                    }
+        assets.open(assetName).use { inputStream ->
+            FileOutputStream(outFile).use { outputStream ->
+                val buffer = ByteArray(1024)
+                var length: Int
+                while (inputStream.read(buffer).also { length = it } > 0) {
+                    outputStream.write(buffer, 0, length)
                 }
-            }
-        } catch (e: IOException) {
-            e.printStackTrace()
-            Log.e("FileCopyError", "Failed to copy asset file: ${e.message}")
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_CAMERA_PERMISSION) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Log.d("Permission", "Camera permission granted")
-            } else {
-                Log.e("PermissionError", "Camera permission not granted")
             }
         }
     }

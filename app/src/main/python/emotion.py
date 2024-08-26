@@ -6,6 +6,7 @@ from datetime import datetime
 import os
 import json
 from typing import Optional, Dict, Any
+import time
 
 def load_known_faces(encoding_file_path: str):
     """Load known faces and their names from the encoding file."""
@@ -25,7 +26,6 @@ def load_known_faces(encoding_file_path: str):
 
     return known_face_encodings, known_face_names
 
-
 def to_dict(status: str, message: Optional[str] = None, attendance_time: Optional[str] = None) -> Dict[str, Any]:
     """Convert the result to a dictionary."""
     return {
@@ -38,9 +38,41 @@ def to_json(status: str, message: Optional[str] = None, attendance_time: Optiona
     """Convert the result to a JSON string."""
     return json.dumps(to_dict(status, message, attendance_time))
 
+def liveness_check(face_image) -> bool:
+    """Basic liveness check based on color variance (simple heuristic)."""
+    gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
+    variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+    print(f"Liveness check variance: {variance}")
+
+    # You can adjust the threshold based on empirical data or testing
+    threshold = 950.0
+    return variance > threshold
+
+def calculate_brightness(image) -> float:
+    """Calculate the brightness of an image."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return np.mean(gray)
+
+def estimate_face_angle(face_landmarks) -> float:
+    """Estimate the angle of the face based on landmarks."""
+    if not face_landmarks:
+        return 0.0
+
+    # Use the landmarks to approximate the angle of the face
+    left_eye = face_landmarks['left_eye'][0]
+    right_eye = face_landmarks['right_eye'][0]
+
+    # Compute the angle between the eyes
+    dx = right_eye[0] - left_eye[0]
+    dy = right_eye[1] - left_eye[1]
+    angle = np.arctan2(dy, dx) * 180 / np.pi
+
+    return angle
 
 def process_image(image_path, encoding_file_path):
     """Process the image to recognize faces and return attendance time."""
+    start_time = time.time()  # Record the start time
+
     print(f"Processing image at path: {image_path}")
     print(f"Using encoding file at path: {encoding_file_path}")
 
@@ -57,32 +89,68 @@ def process_image(image_path, encoding_file_path):
         print(message)
     else:
         frame = cv2.imread(image_path)
+
         if frame is None:
             message = "Failed to load image"
             print(message)
         else:
             try:
-                accuracy_threshold = 0.50
+                accuracy_threshold = 0.45  # Adjusted threshold for masked face recognition
+                max_angle_threshold = 15.0  # Maximum allowed angle for face recognition
+
                 known_face_encodings, known_face_names = load_known_faces(encoding_file_path)
 
                 if not known_face_encodings or not known_face_names:
                     message = "No known faces in the system"
                     print(message)
                 else:
-                    face_locations = face_recognition.face_locations(frame)
-                    face_encodings = face_recognition.face_encodings(frame, face_locations)
+                    # Resize the image for faster processing
+                    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
 
-                    if not face_encodings:
+                    # Use the HOG model for faster face detection
+                    face_locations = face_recognition.face_locations(small_frame, model="hog")
+                    face_landmarks = face_recognition.face_landmarks(small_frame)
+                    print(f"Detected face locations: {face_locations}")
+
+                    if not face_locations:
                         message = "No face detected in the image"
                         print(message)
                     else:
-                        face_found = False
-                        for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+                        for (top, right, bottom, left), face_encoding, landmarks in zip(
+                                face_locations,
+                                face_recognition.face_encodings(small_frame, face_locations),
+                                face_landmarks):
+                            # Rescale face location
+                            top *= 4
+                            right *= 4
+                            bottom *= 4
+                            left *= 4
+
+                            # Extract the upper part of the face (eyes and forehead) for recognition
+                            upper_face = frame[top:top + int((bottom - top) / 2), left:right]
+
+                            # Check for liveness before proceeding
+                            if not liveness_check(upper_face):
+                                message = "Liveness check failed: Fake face detected"
+                                print(message)
+                                status = "error"
+                                break  # Stop further processing if liveness check fails
+
+                            # Estimate face angle and check if it's within the acceptable range
+                            angle = estimate_face_angle(landmarks)
+                            print(f"Face angle: {angle} degrees")
+
+                            if abs(angle) > max_angle_threshold:
+                                message = "Face angle is too extreme for recognition"
+                                print(message)
+                                status = "error"
+                                break  # Stop further processing if angle is not acceptable
+
+                            # Proceed with face recognition if angle and liveness check are okay
                             matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
                             distances = face_recognition.face_distance(known_face_encodings, face_encoding)
 
                             if any(matches):
-                                face_found = True
                                 best_match_index = np.argmin(distances)
                                 best_match_name = known_face_names[best_match_index]
                                 best_match_accuracy = distances[best_match_index]
@@ -94,12 +162,12 @@ def process_image(image_path, encoding_file_path):
                                     hour = int(datetime.now().strftime("%H"))
 
                                     if hour < 12:
-                                        message = f"Good morning {best_match_name}"
+                                        message = f"Good Morning {best_match_name}"
                                     else:
-                                        message = f"Good evening {best_match_name}"
+                                        message = f"Good Evening {best_match_name}"
 
                                     print(f"Time Attendance: {attendance_time}")
-                                    print(f"Match found: {best_match_name} with accuracy {best_match_accuracy}")
+                                    print(f"Match found: {best_match_name} with accuracy ",(1-best_match_accuracy)*100, "%")
                                     status = "success"
                                     break  # Exit the loop as we found a match
                                 else:
@@ -115,6 +183,10 @@ def process_image(image_path, encoding_file_path):
                 message = f"Exception occurred: {str(e)}"
                 print(message)
 
+    end_time = time.time()  # Record the end time
+    processing_time = end_time - start_time  # Calculate the processing time
+    print(f"Processing time: {processing_time:.2f} seconds")  # Print the processing time
+
     return json.dumps({
         "status": status,
         "message": message,
@@ -126,8 +198,8 @@ def process_image(image_path, encoding_file_path):
 def get_file_paths():
     """Retrieve file paths for image and encoding file."""
     # Adjust paths as necessary for the Android environment
-    image_path = '/data/user/0/com.example.detectionpython/cache/temp_image_resized.jpg'  # Example path
-    encoding_file_path = '/data/user/0/com.example.detectionpython/files/encodings.pkl'  # Example path
+    image_path = 'C:/Users/user/PycharmProjects/API/Db/16414.png'  # Example path
+    encoding_file_path = 'encodings.pkl'  # Example path
     return image_path, encoding_file_path
 
 # Example usage

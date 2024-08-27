@@ -22,9 +22,11 @@
         android:theme="@style/Theme.DetectionPython"
         tools:targetApi="31">
         <activity
-            android:name=".CameraActivity"
+            android:name=".Camera2"
             android:exported="false" />
-        <!-- RegistrationActivity should be declared before MainActivity if it is used in navigation -->
+        <activity
+            android:name=".CameraActivity"
+            android:exported="false" /> <!-- RegistrationActivity should be declared before MainActivity if it is used in navigation -->
         <activity
             android:name=".RegistrationActivity"
             android:exported="false" />

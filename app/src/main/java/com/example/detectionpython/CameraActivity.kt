@@ -46,7 +46,7 @@ class CameraActivity : AppCompatActivity() {
     private val checkTooltipRunnable = object : Runnable {
         override fun run() {
             checkTooltipText()
-            handler.postDelayed(this, 2000) // Check every 3 seconds
+            handler.postDelayed(this, 1000) // Check every 3 seconds
         }
     }
 

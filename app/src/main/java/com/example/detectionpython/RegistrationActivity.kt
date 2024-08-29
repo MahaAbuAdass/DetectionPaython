@@ -8,16 +8,13 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import com.example.detectionpython.databinding.ActivityRegistrationBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,29 +32,40 @@ class RegistrationActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityRegistrationBinding
     private val REQUEST_CAMERA_PERMISSION = 100
+    private val REQUEST_READ_EXTERNAL_STORAGE = 101
+    private val REQUEST_READ_MEDIA_IMAGES = 102
     private val REQUEST_IMAGE_CAPTURE = 200
+    private val REQUEST_IMAGE_PICK = 300
     private var photoCaptured: Boolean = false
-    private var userName: String = ""
+    private var userName: String = "test"
+    private var selectedImageUri: Uri? = null
+    private var imageFilePath: String? = null  // Store the image file path here
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityRegistrationBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Request camera permission if not granted
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
-        }
+        userName = binding.etName.text.toString().trim()
+
+        // Request permissions
+        checkAndRequestPermissions()
 
         // Button to take a picture
         binding.btnTakeImage.setOnClickListener {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                == PackageManager.PERMISSION_GRANTED) {
-                val intent = Intent(this, CameraActivity::class.java)
-                startActivityForResult(intent, REQUEST_IMAGE_CAPTURE)
+            if (hasCameraPermission()) {
+                openCamera()
             } else {
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
+            }
+        }
+
+        // Button to select image from gallery
+        binding.btnGallery.setOnClickListener {
+            if (hasGalleryPermission()) {
+                openGalleryToSelectImage()
+            } else {
+                requestGalleryPermissions()
             }
         }
 
@@ -69,19 +77,27 @@ class RegistrationActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            if (!photoCaptured) {
-                Toast.makeText(this, "Please take a picture.", Toast.LENGTH_SHORT).show()
+            if (!photoCaptured && selectedImageUri == null) {
+                Toast.makeText(this, "Please take a picture or select an image from the gallery.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            val imageFilePath = File(filesDir, "$userName.jpg").absolutePath
-            saveImageToPath(imageFilePath)
+            // Save the image with the correct filename
+            imageFilePath = File(filesDir, "$userName.jpg").absolutePath
+
+            if (photoCaptured) {
+                saveImageToPath(imageFilePath!!)
+            } else if (selectedImageUri != null) {
+                saveImageFromUriToPath(selectedImageUri!!, imageFilePath!!)
+            }
+
+            Log.v("img file path", imageFilePath ?: "No file path")
 
             // Show loader
             binding.progressBar.visibility = android.view.View.VISIBLE
 
             CoroutineScope(Dispatchers.IO).launch {
-                val updateMessage = updateFaceEncodings(imageFilePath)
+                val updateMessage = updateFaceEncodings(imageFilePath!!)
                 withContext(Dispatchers.Main) {
                     // Hide loader
                     binding.progressBar.visibility = android.view.View.GONE
@@ -99,13 +115,87 @@ class RegistrationActivity : AppCompatActivity() {
         }
     }
 
+    private fun checkAndRequestPermissions() {
+        val cameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+        if (cameraPermission != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
+        }
+
+        val readExternalStoragePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+
+        if (readExternalStoragePermission != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), REQUEST_READ_EXTERNAL_STORAGE)
+        }
+    }
+
+    private fun hasCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasGalleryPermission(): Boolean {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestGalleryPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_MEDIA_IMAGES), REQUEST_READ_MEDIA_IMAGES)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), REQUEST_READ_EXTERNAL_STORAGE)
+            }
+        }
+    }
+
+    private fun openCamera() {
+        val intent = Intent(this, CameraActivity::class.java)
+        intent.putExtra("source", "registration")
+        startActivityForResult(intent, REQUEST_IMAGE_CAPTURE)
+    }
+
+    private fun openGalleryToSelectImage() {
+        val intent = Intent(Intent.ACTION_PICK)
+        intent.type = "image/*"
+        startActivityForResult(intent, REQUEST_IMAGE_PICK)
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == Activity.RESULT_OK) {
-            val imagePath = data?.getStringExtra("capturedImagePath")
-            if (imagePath != null) {
-                photoCaptured = true
-                correctImageOrientationAndSave(imagePath)
+        if (resultCode == Activity.RESULT_OK) {
+            when (requestCode) {
+                REQUEST_IMAGE_CAPTURE -> {
+                    val imagePath = data?.getStringExtra("capturedImagePath")
+                    if (imagePath != null) {
+                        photoCaptured = true
+                        correctImageOrientationAndSave(imagePath)
+                        Log.v("paaath", imagePath)
+                    }
+                }
+                REQUEST_IMAGE_PICK -> {
+                    selectedImageUri = data?.data
+                    if (selectedImageUri != null) {
+                        // Save image from gallery to the same location as camera images
+                        imageFilePath = File(filesDir, "temp_image.jpg").absolutePath
+                        Log.v("imgfilepath", imageFilePath!!)
+                        Log.v("paaath", imageFilePath!!)
+
+                        correctImageOrientationAndSave(imageFilePath?:"")
+                      //  saveImageFromUriToPath(selectedImageUri!!, imageFilePath!!)
+
+                    }
+                }
             }
         }
     }
@@ -136,6 +226,30 @@ class RegistrationActivity : AppCompatActivity() {
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
+    private fun saveImageFromUriToPath(imageUri: Uri, path: String) {
+        try {
+            val file = File(path)
+            // Ensure the parent directory exists
+            file.parentFile?.mkdirs()
+
+            val inputStream = contentResolver.openInputStream(imageUri)
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+
+            // First save the raw image
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            }
+
+            // Correct the orientation after saving the image
+            correctImageOrientationAndSave(path)
+
+            Log.d("ImageSave", "Image successfully saved at $path")
+        } catch (e: IOException) {
+            e.printStackTrace()
+            Log.e("ImageSave", "Failed to save image: ${e.message}")
+        }
+    }
+
     private fun saveImageToPath(path: String) {
         try {
             val tempImageFile = File(filesDir, "temp_image.jpg")
@@ -151,10 +265,15 @@ class RegistrationActivity : AppCompatActivity() {
     }
 
     private suspend fun updateFaceEncodings(photoPath: String): String {
+
+        Log.v("path for the saved img", photoPath)
         val encodingFile = File(filesDir, "encodings.pkl")
         if (!encodingFile.exists() || encodingFile.length() == 0L) {
             copyAssetToFile("encodings.pkl", encodingFile)
         }
+
+        Log.v("path for the saved img12 3", photoPath)
+
 
         val python = Python.getInstance()
         val pythonModule = python.getModule("updateencoding")
@@ -162,6 +281,7 @@ class RegistrationActivity : AppCompatActivity() {
         return try {
             val result: PyObject = withContext(Dispatchers.IO) {
                 pythonModule.callAttr("update_face_encodings", photoPath, encodingFile.absolutePath)
+
             }
 
             val response = result.toString()  // Convert the response to a String
@@ -169,6 +289,9 @@ class RegistrationActivity : AppCompatActivity() {
             val message = jsonResponse.optString("message", "No message field in response")
 
             Log.d("UpdateFaceEncodings", "Response from Python: $message")
+            Log.d("UpdateFaceEncodings", "face path $photoPath")
+            Log.d("UpdateFaceEncodings", "encoding file ${encodingFile.absolutePath}")
+
             message
         } catch (e: Exception) {
             e.printStackTrace()
@@ -189,18 +312,6 @@ class RegistrationActivity : AppCompatActivity() {
             }
         } catch (e: IOException) {
             e.printStackTrace()
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_CAMERA_PERMISSION) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                val intent = Intent(this, CameraActivity::class.java)
-                startActivityForResult(intent, REQUEST_IMAGE_CAPTURE)
-            } else {
-                Toast.makeText(this, "Camera permission is required", Toast.LENGTH_SHORT).show()
-            }
         }
     }
 }

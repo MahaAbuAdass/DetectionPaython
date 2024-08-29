@@ -105,23 +105,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleCameraResult(result: ActivityResult) {
         if (result.resultCode == RESULT_OK) {
-            val data: Intent? = result.data
-            val imagePath = data?.getStringExtra("capturedImagePath") ?: return
-            val imageFile = File(imagePath)
+            val imagePath = result.data?.getStringExtra("capturedImagePath")
+            if (imagePath != null) {
+                val imageFile = File(imagePath)
+                if (imageFile.exists()) {
+                    val tempImageFile = File(cacheDir, "captured_image.jpg")
+                    imageFile.copyTo(tempImageFile, overwrite = true)
+                    correctImageOrientationAndSave(tempImageFile)
 
-            if (imageFile.exists()) {
-                val tempImageFile = File(cacheDir, "captured_image.jpg")
-                imageFile.copyTo(tempImageFile, overwrite = true)
-
-                correctImageOrientationAndSave(tempImageFile)
-                CoroutineScope(Dispatchers.IO).launch {
-                    processImage(tempImageFile)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        processImage(tempImageFile)
+                    }
+                } else {
+                    Log.e("IntentDataError", "Image file does not exist at $imagePath")
                 }
             } else {
-                Log.e("FileError", "Image file does not exist at $imagePath")
+                Log.e("IntentDataError", "Image path not found in result data")
             }
+        } else {
+            Log.e("IntentDataError", "Camera result not OK")
         }
     }
+
 
     private fun correctImageOrientationAndSave(imageFile: File) {
         try {

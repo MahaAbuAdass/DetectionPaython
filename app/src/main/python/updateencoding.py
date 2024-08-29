@@ -12,7 +12,7 @@ def liveness_check(face_image) -> bool:
     print(f"Liveness check variance: {variance}")
 
     # You can adjust the threshold based on empirical data or testing
-    threshold = 950.0
+    threshold = 10.0
     return variance > threshold
 
 def update_face_encodings(new_photo_path, encoding_file):

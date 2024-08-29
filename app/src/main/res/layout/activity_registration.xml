@@ -98,16 +98,28 @@
         />
 
         <Button
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="170dp"
+            android:layout_height="55dp"
             android:id="@+id/btn_take_image"
             app:layout_constraintStart_toStartOf="@id/tv_image"
             app:layout_constraintTop_toBottomOf="@id/tv_image"
             android:layout_marginTop="10dp"
-            android:text="take a picture for your face"
+            android:text="take a picture"
             android:backgroundTint="@color/purple"
             />
 
+
+    <Button
+        android:id="@+id/btn_gallery"
+        android:layout_width="170dp"
+        android:layout_height="55dp"
+        android:layout_marginEnd="4dp"
+        android:backgroundTint="@color/purple"
+        android:text="Upload From Gallery"
+        app:layout_constraintBottom_toBottomOf="@id/btn_take_image"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/btn_take_image"
+        app:layout_constraintVertical_bias="0.0" />
 
     <Button
         android:layout_width="120dp"

@@ -52,7 +52,7 @@ def liveness_check(face_image) -> bool:
     print(f"Liveness check variance: {variance}")
 
     # You can adjust the threshold based on empirical data or testing
-    threshold = 150.0
+    threshold = 80.0
     return variance > threshold
 
 def calculate_brightness(image) -> float:
@@ -195,7 +195,7 @@ def process_image(image_path, encoding_file_path):
                                         status = "success"
                                         break  # Exit the loop as we found a match
                                     else:
-                                        message = "Face recognized but accuracy is below threshold"
+                                        message = "Face not recognized"
                                         print(message)
                                         break
                                 else:

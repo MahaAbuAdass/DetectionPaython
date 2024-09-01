@@ -5,15 +5,15 @@ import json
 import cv2
 import numpy as np
 
-def liveness_check(face_image) -> bool:
-    """Basic liveness check based on color variance (simple heuristic)."""
-    gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
-    variance = cv2.Laplacian(gray, cv2.CV_64F).var()
-    print(f"Liveness check variance: {variance}")
+#def liveness_check(face_image) -> bool:
+ #   """Basic liveness check based on color variance (simple heuristic)."""
+  #  gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
+   # variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+    #print(f"Liveness check variance: {variance}")
 
     # You can adjust the threshold based on empirical data or testing
-    threshold = 10.0
-    return variance > threshold
+    #threshold = 85.0
+    #return variance > threshold
 
 def update_face_encodings(new_photo_path, encoding_file):
     print("encoding file", encoding_file)
@@ -50,18 +50,11 @@ def update_face_encodings(new_photo_path, encoding_file):
     if encodings:
         for encoding in encodings:
             # Extract the upper part of the face for liveness check
-            top, right, bottom, left = face_recognition.face_locations(image)[0]
-            upper_face = image[top:top + int((bottom - top) / 2), left:right]
+            known_face_encodings.append(encoding)
+            known_face_names.append(os.path.splitext(os.path.basename(new_photo_path))[0])
+            print(f"Encoded face from {new_photo_path}")
+            response['message'] = f"Encoded and added face from {new_photo_path}"
 
-            if liveness_check(upper_face):
-                known_face_encodings.append(encoding)
-                known_face_names.append(os.path.splitext(os.path.basename(new_photo_path))[0])
-                print(f"Encoded face from {new_photo_path}")
-                response['message'] = f"Encoded and added face from {new_photo_path}"
-            else:
-                response['message'] = "Liveness check failed: Fake face detected"
-                print(response['message'])
-                break  # Exit if liveness check fails
     else:
         response['message'] = "No faces found in the image, please try again"
 

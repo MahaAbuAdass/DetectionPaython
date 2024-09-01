@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun openCamera() {
         val intent = Intent(this, CameraActivity::class.java)
+        intent.putExtra("source", "mainactivity")
         cameraLauncher.launch(intent)
     }
 

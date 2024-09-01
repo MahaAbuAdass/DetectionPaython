@@ -52,7 +52,7 @@ def liveness_check(face_image) -> bool:
     print(f"Liveness check variance: {variance}")
 
     # You can adjust the threshold based on empirical data or testing
-    threshold = 80.0
+    threshold = 85.0
     return variance > threshold
 
 def calculate_brightness(image) -> float:

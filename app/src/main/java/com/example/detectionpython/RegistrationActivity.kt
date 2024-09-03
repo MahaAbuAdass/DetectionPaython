@@ -65,7 +65,7 @@ class RegistrationActivity : AppCompatActivity() {
             if (hasGalleryPermission()) {
                 openGalleryToSelectImage()
             } else {
-                requestGalleryPermissions()
+                //requestGalleryPermissions()
             }
         }
 
@@ -121,15 +121,16 @@ class RegistrationActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
         }
 
-        val readExternalStoragePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
-        } else {
+//        val readExternalStoragePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+//            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+//        }
+        else {
             ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
         }
 
-        if (readExternalStoragePermission != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), REQUEST_READ_EXTERNAL_STORAGE)
-        }
+//        if (readExternalStoragePermission != PackageManager.PERMISSION_GRANTED) {
+//            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), REQUEST_READ_EXTERNAL_STORAGE)
+//        }
     }
 
     private fun hasCameraPermission(): Boolean {
@@ -137,26 +138,28 @@ class RegistrationActivity : AppCompatActivity() {
     }
 
     private fun hasGalleryPermission(): Boolean {
-        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_IMAGES
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-        return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-    }
+//        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+//            Manifest.permission.READ_MEDIA_IMAGES
+//        } else {
+//            Manifest.permission.READ_EXTERNAL_STORAGE
+//        }
+//        return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+//    }
 
-    private fun requestGalleryPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
-                != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_MEDIA_IMAGES), REQUEST_READ_MEDIA_IMAGES)
-            }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), REQUEST_READ_EXTERNAL_STORAGE)
-            }
-        }
+//    private fun requestGalleryPermissions() {
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+//            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+//                != PackageManager.PERMISSION_GRANTED) {
+//                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_MEDIA_IMAGES), REQUEST_READ_MEDIA_IMAGES)
+//            }
+//        } else {
+//            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+//                != PackageManager.PERMISSION_GRANTED) {
+//                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), REQUEST_READ_EXTERNAL_STORAGE)
+//            }
+//        }
+//    }
+        return true
     }
 
     private fun openCamera() {
@@ -267,12 +270,12 @@ class RegistrationActivity : AppCompatActivity() {
     private suspend fun updateFaceEncodings(photoPath: String): String {
 
         Log.v("path for the saved img", photoPath)
-        val encodingFile = File(filesDir, "encodings.pkl")
+        val encodingFile = File(filesDir, "face_data")
         if (!encodingFile.exists() || encodingFile.length() == 0L) {
-            copyAssetToFile("encodings.pkl", encodingFile)
+            copyAssetToFile("face_data", encodingFile)
         }
 
-        Log.v("path for the saved img12 3", photoPath)
+      //  Log.v("path for the saved img12 3", photoPath)
 
 
         val python = Python.getInstance()

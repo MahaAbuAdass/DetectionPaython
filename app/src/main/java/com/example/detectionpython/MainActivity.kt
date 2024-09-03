@@ -1,6 +1,8 @@
 package com.example.detectionpython
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -10,7 +12,11 @@ import android.media.ExifInterface
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.view.LayoutInflater
+import android.widget.Button
+import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResult
@@ -37,9 +43,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var resultTextView: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var cameraLauncher: ActivityResultLauncher<Intent>
+    var livenessValue: Float ?=null
 
     private val CAMERA_PERMISSION_CODE = 100
 
+    @SuppressLint("UseSwitchCompatOrMaterialCode")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -48,6 +56,9 @@ class MainActivity : AppCompatActivity() {
 
         resultTextView = binding.resultTextView
         progressBar = findViewById(R.id.progressBar)
+
+        val switchButton: Switch = binding.switchButton
+
 
         // Initialize ActivityResultLauncher
         cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -66,6 +77,56 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(this, RegistrationActivity::class.java)
             startActivity(intent)
         }
+
+
+        switchButton.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                // Show dialog when switch is turned on
+                showCustomDialog(switchButton)
+            }
+        }
+    }
+
+    private fun showCustomDialog(switchButton: Switch) {
+        // Inflate the custom dialog layout
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_liveness, null)
+
+        // Create the AlertDialog builder and set the custom layout
+        val builder = AlertDialog.Builder(this)
+            .setView(dialogView)
+
+        // Create the AlertDialog
+        val dialog = builder.create()
+
+        // Set the dialog's window background to transparent to avoid default border
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        // Initialize UI elements from the custom dialog layout
+        val editTextValue = dialogView.findViewById<EditText>(R.id.editTextValue).text
+        val buttonOk = dialogView.findViewById<Button>(R.id.buttonOk)
+        val buttonCancel = dialogView.findViewById<Button>(R.id.buttonCancel)
+
+        // Set "OK" button click listener
+        buttonOk.setOnClickListener {
+            if (editTextValue?.toString()?.isNotEmpty() == true) {
+                Toast.makeText(this, "Threshold value is: $livenessValue", Toast.LENGTH_SHORT).show()
+                dialog.dismiss() // Close the dialog if input is valid
+            } else {
+                Toast.makeText(this, "Please enter a number!", Toast.LENGTH_SHORT).show()
+                // Keep the dialog open
+            }
+               livenessValue = editTextValue.toString().toFloat()
+
+        }
+
+        // Set "Cancel" button click listener
+        buttonCancel.setOnClickListener {
+            switchButton.isChecked = false // Turn off switch if user cancels
+            dialog.dismiss()
+        }
+
+        // Show the dialog
+        dialog.show()
     }
 
     private fun isCameraPermissionGranted(): Boolean {
@@ -168,6 +229,8 @@ class MainActivity : AppCompatActivity() {
         val python = Python.getInstance()
         val pythonModule = python.getModule("emotion")
 
+        livenessValue?.let { Log.v("liveness value is", it.toString()) }
+
         if (pythonModule == null) {
             Log.e("PythonError", "Failed to load Python module")
             runOnUiThread {
@@ -177,9 +240,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val encodingFile = File(filesDir, "encodings.pkl")
+        val encodingFile = File(filesDir, "face_data.pkl")
         if (!encodingFile.exists()) {
-            copyAssetToFile("encodings.pkl", encodingFile)
+            copyAssetToFile("face_data.pkl", encodingFile)
         }
 
         if (encodingFile.canRead() && encodingFile.canWrite()) {
@@ -218,7 +281,7 @@ class MainActivity : AppCompatActivity() {
         try {
             Log.d("PythonExecution", "Starting Python function execution")
             val result: PyObject = withContext(Dispatchers.IO) {
-                pythonModule.callAttr("process_image", imageFile.absolutePath, encodingFile.absolutePath)
+                pythonModule.callAttr("process_image", imageFile.absolutePath, encodingFile.absolutePath, livenessValue)
             }
 
             val resultJson = result.toString() // Ensure the result is a JSON string

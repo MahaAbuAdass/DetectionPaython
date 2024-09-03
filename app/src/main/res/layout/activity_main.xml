@@ -2,6 +2,7 @@
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -44,6 +45,17 @@
         android:id="@+id/logo"
         />
 
+    <Switch
+        android:id="@+id/switchButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Liveness"
+        app:layout_constraintTop_toBottomOf="@id/logo"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginTop="10dp"
+        tools:ignore="UseSwitchCompatOrMaterialXml" />
+
+
     <Button
         android:layout_width="150dp"
         android:layout_height="100dp"
@@ -57,6 +69,8 @@
         android:layout_marginStart="20dp"
         />
 
+
+
     <Button
         app:layout_constraintTop_toBottomOf="@id/logo"
         android:id="@+id/takePictureButton"
@@ -69,7 +83,7 @@
         app:layout_constraintStart_toEndOf="@id/btn_register"
         android:layout_marginStart="30dp"
         android:layout_centerHorizontal="true"
-        android:layout_marginTop="50dp"
+        android:layout_marginTop="80dp"
         />
 
 

@@ -1,158 +1,174 @@
-package com.example.detectionpython.face
-
+package com.ibrahimcanerdogan.facedetectionapp.graphic
+/*
+ * Copyright (C) The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Canvas
-import android.graphics.Matrix
-import android.graphics.Rect
-import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
-import androidx.camera.core.CameraSelector
-import kotlin.math.ceil
+import com.google.android.gms.vision.CameraSource
+import java.util.*
 
-open class GraphicOverlay(context: Context?, attrs: AttributeSet?) :
-    View(context, attrs) {
+/**
+ * A view which renders a series of custom graphics to be overlaid on top of an associated preview
+ * (i.e., the camera preview).  The creator can add graphics objects, update the objects, and remove
+ * them, triggering the appropriate drawing and invalidation within the view.
+ *
+ *
+ * Supports scaling and mirroring of the graphics relative the camera's preview properties.  The
+ * idea is that detection items are expressed in terms of a preview size, but need to be scaled up
+ * to the full view size, and also mirrored in the case of the front-facing camera.
+ *
+ *
+ * Associated [Graphic] items should use the following methods to convert to view coordinates
+ * for the graphics that are drawn:
+ *
+ *  1. [Graphic.scaleX] and [Graphic.scaleY] adjust the size of the
+ * supplied value from the preview scale to the view scale.
+ *  1. [Graphic.translateX] and [Graphic.translateY] adjust the coordinate
+ * from the preview's coordinate system to the view coordinate system.
+ *
+ */
+class GraphicOverlay<T : GraphicOverlay.Graphic>(context: Context, attrs: AttributeSet) : View(context, attrs) {
+    private val mLock = java.lang.Object()
+    private var mPreviewWidth: Int = 0
+    private var mWidthScaleFactor = 1.0f
+    private var mPreviewHeight: Int = 0
+    private var mHeightScaleFactor = 1.0f
+    private var mFacing = CameraSource.CAMERA_FACING_BACK
+    private val mGraphics = HashSet<T>()
 
-    // Matrix for transforming from image coordinates to overlay view coordinates.
-    private val transformationMatrix = Matrix()
+    /**
+     * Base class for a custom graphics object to be rendered within the graphic overlay.  Subclass
+     * this and implement the [Graphic.draw] method to define the
+     * graphics element.  Add instances to the overlay using [GraphicOverlay.add].
+     */
+    abstract class Graphic(private val mOverlay: GraphicOverlay<*>) {
 
-    // The factor of overlay View size to image size. Anything in the image coordinates need to be
-    // scaled by this amount to fit with the area of overlay View.
-    private var scaleFactor = 1.0f
+        /**
+         * Draw the graphic on the supplied canvas.  Drawing should use the following methods to
+         * convert to view coordinates for the graphics that are drawn:
+         *
+         *  1. [Graphic.scaleX] and [Graphic.scaleY] adjust the size of
+         * the supplied value from the preview scale to the view scale.
+         *  1. [Graphic.translateX] and [Graphic.translateY] adjust the
+         * coordinate from the preview's coordinate system to the view coordinate system.
+         *
+         * @param canvas drawing canvas
+         */
+        abstract fun draw(canvas: Canvas)
 
-    // The number of horizontal pixels needed to be cropped on each side to fit the image with the
-    // area of overlay View after scaling.
-    private var postScaleWidthOffset = 0f
-
-    // The number of vertical pixels needed to be cropped on each side to fit the image with the
-    // area of overlay View after scaling.
-    private var postScaleHeightOffset = 0f
-    private var isImageFlipped = false
-
-    private val lock = Any()
-    private val graphics: MutableList<Graphic> = ArrayList()
-    var mScale: Float? = null
-    var mOffsetX: Float? = null
-    var mOffsetY: Float? = null
-    var cameraSelector: Int = CameraSelector.LENS_FACING_FRONT
-
-    abstract class Graphic(private val overlay: GraphicOverlay) {
-
-        abstract fun draw(canvas: Canvas?)
-
-        fun calculateRect(height: Float, width: Float, boundingBoxT: Rect): RectF {
-
-            // for land scape
-            fun isLandScapeMode(): Boolean {
-                return overlay.context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-            }
-
-            fun whenLandScapeModeWidth(): Float {
-                return when(isLandScapeMode()) {
-                    true -> width
-                    false -> height
-                }
-            }
-
-            fun whenLandScapeModeHeight(): Float {
-                return when(isLandScapeMode()) {
-                    true -> height
-                    false -> width
-                }
-            }
-
-            val scaleX = overlay.width.toFloat() / whenLandScapeModeWidth()
-            val scaleY = overlay.height.toFloat() / whenLandScapeModeHeight()
-            val scale = scaleX.coerceAtLeast(scaleY)
-            overlay.mScale = scale
-
-            // Calculate offset (we need to center the overlay on the target)
-            val offsetX = (overlay.width.toFloat() - ceil(whenLandScapeModeWidth() * scale)) / 2.0f
-            val offsetY = (overlay.height.toFloat() - ceil(whenLandScapeModeHeight() * scale)) / 2.0f
-
-            overlay.mOffsetX = offsetX
-            overlay.mOffsetY = offsetY
-
-            val mappedBox = RectF().apply {
-                left = boundingBoxT.right * scale + offsetX
-                top = boundingBoxT.top * scale + offsetY
-                right = boundingBoxT.left * scale + offsetX
-                bottom = boundingBoxT.bottom * scale + offsetY
-            }
-
-            // for front mode
-            if (overlay.isFrontMode()) {
-                val centerX = overlay.width.toFloat() / 2
-                mappedBox.apply {
-                    left = centerX + (centerX - left)
-                    right = centerX - (right - centerX)
-                }
-            }
-            return mappedBox
-        }
-
-
-        /** Adjusts the supplied value from the image scale to the view scale.  */
-        fun scale(imagePixel: Float): Float {
-            return imagePixel * overlay.scaleFactor
+        /**
+         * Adjusts a horizontal value of the supplied value from the preview scale to the view
+         * scale.
+         */
+        fun scaleX(horizontal: Float): Float {
+            return horizontal * mOverlay.mWidthScaleFactor
         }
 
         /**
-         * Adjusts the x coordinate from the image's coordinate system to the view coordinate system.
+         * Adjusts a vertical value of the supplied value from the preview scale to the view scale.
+         */
+        fun scaleY(vertical: Float): Float {
+            return vertical * mOverlay.mHeightScaleFactor
+        }
+
+        /**
+         * Adjusts the x coordinate from the preview's coordinate system to the view coordinate
+         * system.
          */
         fun translateX(x: Float): Float {
-            return if (overlay.isImageFlipped) {
-                overlay.width - (scale(x) - overlay.postScaleWidthOffset)
+            if (mOverlay.mFacing == CameraSource.CAMERA_FACING_FRONT) {
+                return mOverlay.width - scaleX(x)
             } else {
-                scale(x) - overlay.postScaleWidthOffset
+                return scaleX(x)
             }
         }
 
         /**
-         * Adjusts the y coordinate from the image's coordinate system to the view coordinate system.
+         * Adjusts the y coordinate from the preview's coordinate system to the view coordinate
+         * system.
          */
         fun translateY(y: Float): Float {
-            return scale(y) - overlay.postScaleHeightOffset
+            return scaleY(y)
         }
 
-        /**
-         * Returns a [Matrix] for transforming from image coordinates to overlay view coordinates.
-         */
-        fun getTransformationMatrix(): Matrix {
-            return overlay.transformationMatrix
+        fun postInvalidate() {
+            mOverlay.postInvalidate()
         }
     }
 
-    fun isFrontMode() = cameraSelector == CameraSelector.LENS_FACING_FRONT
-
-    fun toggleSelector() {
-        cameraSelector =
-            if (cameraSelector == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT
-            else CameraSelector.LENS_FACING_BACK
-    }
-
+    /**
+     * Removes all graphics from the overlay.
+     */
     fun clear() {
-        synchronized(lock) { graphics.clear() }
+        synchronized(mLock) {
+            mGraphics.clear()
+        }
         postInvalidate()
     }
 
+    /**
+     * Adds a graphic to the overlay.
+     */
     fun add(graphic: Graphic) {
-        synchronized(lock) { graphics.add(graphic) }
-    }
-
-    fun remove(graphic: Graphic) {
-        synchronized(lock) { graphics.remove(graphic) }
+        synchronized(mLock) {
+            mGraphics.add(graphic as T)
+        }
         postInvalidate()
     }
 
-    override fun onDraw(canvas: Canvas?) {
+    /**
+     * Removes a graphic from the overlay.
+     */
+    fun remove(graphic: T) {
+        synchronized(mLock) {
+            mGraphics.remove(graphic)
+        }
+        postInvalidate()
+    }
+
+
+    /**
+     * Sets the camera attributes for size and facing direction, which informs how to transform
+     * image coordinates later.
+     */
+    fun setCameraInfo(previewWidth: Int, previewHeight: Int, facing: Int) {
+        synchronized(mLock) {
+            mPreviewWidth = previewWidth
+            mPreviewHeight = previewHeight
+            mFacing = facing
+        }
+        postInvalidate()
+    }
+
+    /**
+     * Draws the overlay with its associated graphic objects.
+     */
+    override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        synchronized(lock) {
-            for (graphic in graphics) {
+
+        synchronized(mLock) {
+            if (mPreviewWidth != 0 && mPreviewHeight != 0) {
+                mWidthScaleFactor = canvas.width.toFloat() / mPreviewWidth.toFloat()
+                mHeightScaleFactor = canvas.height.toFloat() / mPreviewHeight.toFloat()
+            }
+
+            for (graphic in mGraphics) {
                 graphic.draw(canvas)
             }
         }
     }
-
 }
